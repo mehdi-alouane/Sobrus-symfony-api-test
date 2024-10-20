@@ -4,6 +4,7 @@ namespace App\Controller;
 
 use App\Entity\BlogArticle;
 use App\Repository\BlogArticleRepository;
+use App\Service\WordFrequencyService;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -17,12 +18,15 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 #[Route('/api', name: 'api_')]
 class BlogArticleController extends AbstractController
 {
+    private $bannedWords = ['thor']; // Example banned words
     public function __construct(
         private EntityManagerInterface $entityManager,
         private SerializerInterface $serializer,
         private ValidatorInterface $validator,
-        private SluggerInterface $slugger
-    ) {}
+        private SluggerInterface $slugger,
+        private WordFrequencyService $wordFrequencyService
+    ) {
+    }
 
     #[Route('/blog-articles', name: 'blog_article_index', methods: ['GET'])]
     public function index(BlogArticleRepository $blogArticleRepository): JsonResponse
@@ -42,20 +46,27 @@ class BlogArticleController extends AbstractController
         $blogArticle->setAuthorId($data['authorId']);
         $blogArticle->setTitle($data['title']);
         $blogArticle->setContent($data['content']);
-        $blogArticle->setKeywords($data['keywords']);
         $blogArticle->setStatus($data['status']);
         $blogArticle->setSlug($this->slugger->slug($data['title'])->lower());
 
+        // Set publication date
         if (isset($data['publicationDate'])) {
             $blogArticle->setPublicationDate(new \DateTime($data['publicationDate']));
+        } else {
+            // If no publication date is provided, set it to the current date
+            $blogArticle->setPublicationDate(new \DateTime());
         }
 
-        // Handle file upload for cover picture
-        if ($request->files->has('coverPicture')) {
-            $file = $request->files->get('coverPicture');
-            $fileName = md5(uniqid()).'.'.$file->guessExtension();
-            $file->move($this->getParameter('uploads_directory'), $fileName);
-            $blogArticle->setCoverPictureRef($fileName);
+        // Generate keywords from content
+        $keywords = $this->wordFrequencyService->getMostFrequentWords($data['content'], $this->bannedWords);
+        $blogArticle->setKeywords($keywords);
+
+        // Validate content for banned words
+        $contentLower = strtolower($data['content']);
+        foreach ($this->bannedWords as $bannedWord) {
+            if (strpos($contentLower, $bannedWord) !== false) {
+                return new JsonResponse(['message' => "The word '$bannedWord' is not allowed in the content."], Response::HTTP_BAD_REQUEST);
+            }
         }
 
         $errors = $this->validator->validate($blogArticle);
@@ -103,9 +114,23 @@ class BlogArticleController extends AbstractController
             $blogArticle->setTitle($data['title']);
             $blogArticle->setSlug($this->slugger->slug($data['title'])->lower());
         }
-        if (isset($data['content'])) $blogArticle->setContent($data['content']);
-        if (isset($data['keywords'])) $blogArticle->setKeywords($data['keywords']);
-        if (isset($data['status'])) $blogArticle->setStatus($data['status']);
+        if (isset($data['content'])) {
+            $blogArticle->setContent($data['content']);
+
+            // Validate content for banned words
+            $contentLower = strtolower($data['content']);
+            foreach ($this->bannedWords as $bannedWord) {
+                if (strpos($contentLower, $bannedWord) !== false) {
+                    return new JsonResponse(['message' => "The word '$bannedWord' is not allowed in the content."], Response::HTTP_BAD_REQUEST);
+                }
+            }
+
+            // Update keywords based on new content
+            $keywords = $this->wordFrequencyService->getMostFrequentWords($data['content'], $this->bannedWords);
+            $blogArticle->setKeywords($keywords);
+        }
+        if (isset($data['status']))
+            $blogArticle->setStatus($data['status']);
         if (isset($data['publicationDate'])) {
             $blogArticle->setPublicationDate(new \DateTime($data['publicationDate']));
         }
@@ -113,7 +138,7 @@ class BlogArticleController extends AbstractController
         // Handle file upload for cover picture
         if ($request->files->has('coverPicture')) {
             $file = $request->files->get('coverPicture');
-            $fileName = md5(uniqid()).'.'.$file->guessExtension();
+            $fileName = md5(uniqid()) . '.' . $file->guessExtension();
             $file->move($this->getParameter('uploads_directory'), $fileName);
             $blogArticle->setCoverPictureRef($fileName);
         }
