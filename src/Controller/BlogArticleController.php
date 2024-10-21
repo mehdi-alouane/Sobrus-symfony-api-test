@@ -14,8 +14,13 @@ use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\Serializer\SerializerInterface;
 use Symfony\Component\String\Slugger\SluggerInterface;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
+use OpenApi\Annotations as OA;
+
 
 #[Route('/api', name: 'api_')]
+/**
+ * @OA\Info(title="Blog API", version="1.0")
+ */
 class BlogArticleController extends AbstractController
 {
     private $bannedWords = ['thor']; // Example banned words
@@ -28,6 +33,13 @@ class BlogArticleController extends AbstractController
     ) {
     }
 
+    /**
+     * @OA\Get(
+     *     path="/api/blog-articles",
+     *     summary="Get all blog articles",
+     *     @OA\Response(response="200", description="Successful operation")
+     * )
+     */
     #[Route('/blog-articles', name: 'blog_article_index', methods: ['GET'])]
     public function index(BlogArticleRepository $blogArticleRepository): JsonResponse
     {
